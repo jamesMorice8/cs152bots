@@ -17,7 +17,7 @@ class Report:
     START_KEYWORD = "report"
     CANCEL_KEYWORD = "cancel"
     HELP_KEYWORD = "help"
-    OFFENSIVE_CONTENT = ""
+    OFFENSIVE_CONTENT = []
     AUTHOR = ""
     REASON = ""
     SUB_CAT = ""
@@ -49,6 +49,14 @@ class Report:
             return [reply]
         
         if self.state == State.AWAITING_MESSAGE:
+            if message.content.lower() == 'continue':
+                self.state = State.LEVEL1
+                reply = "Please select the most appropriate reason for this report and reply with the associated number.\n"
+                reply += "1: Explicit Content\n"
+                reply += "2: Harassment\n"
+                reply += "3: Spam\n"
+                reply += "4: Potential Danger"
+                return [reply]
             # Parse out the three ID strings from the message link
             m = re.search('/(\d+)/(\d+)/(\d+)', message.content)
             if not m:
@@ -66,26 +74,30 @@ class Report:
 
             # Here we've found the message - it's up to you to decide what to do next!
             self.state = State.MESSAGE_IDENTIFIED
-            self.OFFENSIVE_CONTENT = message.content
+            self.OFFENSIVE_CONTENT.append(message.content)
             self.AUTHOR = message.author.name
             return ["I found this message:", "```" + message.author.name + ": " + message.content + "```", \
-                    "Is this the message you would like to report? \nSay 'yes' to confirm and 'no' to report a different message."]
+                    """Would you like to continue to the rest of the reporting process?\nSay 'yes' to continue to the rest of the reporting process, 'no' to discard this message and report a new message, and 'more' to confirm this message and add additional messages to this report."""]
         
         if self.state == State.MESSAGE_IDENTIFIED:
             if message.content.lower() == 'no':
                 self.state =  State.AWAITING_MESSAGE
-                return ["Please copy paste the link to the message you want to report.\nYou can obtain this link by right-clicking the message and clicking `Copy Message Link`."]
+                self.OFFENSIVE_CONTENT.pop()
+                return ["Please copy paste the link to the message you want to report.\nYou can obtain this link by right-clicking the message and clicking `Copy Message Link`.\nOtherwise say 'continue' to proceed to the rest of the reporting process without reporting another message."]
             elif message.content.lower() == 'yes':
                 self.state = State.LEVEL1
-                reply = "Please select the most appropriate reason for reporting this message and reply with the associated number.\n"
+                reply = "Please select the most appropriate reason for this report and reply with the associated number.\n"
                 reply += "1: Explicit Content\n"
                 reply += "2: Harassment\n"
                 reply += "3: Spam\n"
                 reply += "4: Potential Danger"
                 return [reply]
+            elif message.content.lower() == 'more':
+                self.state = State.AWAITING_MESSAGE
+                return ["Please copy paste the link to the message you want to report.\nYou can obtain this link by right-clicking the message and clicking `Copy Message Link`.\nOtherwise say 'continue' to proceed to the rest of the reporting process without reporting another message."]
             else:
                 return ["Sorry I didn't understand that. \nSay 'yes' to confirm you want to report:", \
-                         "```" + self.OFFENSIVE_CONTENT + "```" +  "and 'no' to report a different message."]
+                         "```" + self.OFFENSIVE_CONTENT[-1] + "```" +  "'no' to report a different message, and 'more' to add additional messages to this report."]
         
         if self.state == State.LEVEL1:
             # this is where the user has chosen the reason for reporting and will be prompted for more specific info
@@ -158,15 +170,6 @@ class Report:
                 reply += "4: Potential Danger"
                 return [reply]
             
-            # when the reason for reporting was explicit content
-            # if self.REASON == "Explicit Content":
-
-            #     # ensure the user's reply is one of the options
-            #     if message.content not in ["1", "2", "3", "4", "5"]:
-            #         # if it's not one of the options then tell them to try again basically
-            #         return ["Sorry I didn't understand that. Please answer with a digit 1-5."]
-            #     my_dict = {"1" : "Child Sexual Abuse Material", "2" : "Violent Acts", "3" : "Substance Abuse", "4" : "Nudity or Sexual Material", "5" : "Other"}
-            #     self.SUB_CAT = my_dict[message.content]
             if self.REASON == "Explicit Content":
                 # Ensure user's reply is valid
                 if message.content not in ["1", "2", "3", "4", "5"]:
@@ -212,6 +215,7 @@ class Report:
             
             self.state = State.REPORT_SUBMITTED
             return ["Please add any further information, context, or thoughts to be shared with our content moderation team or say ‘no’ to submit."]
+        
         if self.state == State.CHECK_DANGER:
             if message.content.lower() == 'yes':
                 self.IMMINENT_DANGER = True
@@ -250,13 +254,13 @@ class Report:
         REASON = ""
         SUB_CAT = ""
         OTHER_INFO = ""
+
         to_print = "Author: {}\n".format(self.AUTHOR)
         to_print += "Message: {}\n".format(self.OFFENSIVE_CONTENT)
         to_print += "Reason Level 1: {}\n".format(self.REASON)
         to_print += "Reason Level 2: {}\n".format(self.SUB_CAT)
         to_print += "Additional Info: {}".format(self.OTHER_INFO)
-        print(to_print)
-        '''
+        print(to_print)'''
         return self.state == State.REPORT_COMPLETE
     
 
