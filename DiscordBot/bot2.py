@@ -237,7 +237,9 @@ class ModBot(discord.Client):
         Here will be code to take a given message, get its content, pass it into a classifier, and
         add it to the respective queue if it is classified as CSAM
         '''
-        return message
+        if len(message.attachments) > 0:
+            # here will be stuff
+            pass
 
 
 client = ModBot()
