@@ -9,6 +9,12 @@ import requests
 from report import Report
 import pdb
 import queue
+import torch
+import cv2
+from PIL import Image
+import numpy as np
+import requests
+from io import BytesIO
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -26,7 +32,9 @@ with open(token_path) as f:
     tokens = json.load(f)
     discord_token = tokens['discord']
 
-
+# Load the YOLOv5 model
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='/Users/zijianluo/Desktop/Stanford/Courses/2024 spring/CS 152/cs152bots/DiscordBot/best.pt')
+model.eval()
 
 
 class ModBot(discord.Client):
@@ -104,7 +112,7 @@ class ModBot(discord.Client):
                 elif message.channel.name == f'group-{self.group_num}':
                     ################################### MILESTONE 3 ---- MESSAGES SENT IN REGULAR CHAT GO HERE ##############################################################
                     print('message sent in chat')
-                    self.eval_text(message)
+                    await self.eval_text(message)
                     ################################### MILESTONE 3 ---- MESSAGES SENT IN REGULAR CHAT GO HERE ##############################################################
         else:
             await self.handle_dm(message)
@@ -232,14 +240,79 @@ class ModBot(discord.Client):
             await message.channel.send(f"You are now logged in as a moderator. Available queues:\n{queues_message}\nType the number of the queue to check its status.")
             return
 
-    def eval_text(self, message):
-        ''''
-        Here will be code to take a given message, get its content, pass it into a classifier, and
-        add it to the respective queue if it is classified as CSAM
-        '''
+    def download_image(self, url):
+        response = requests.get(url)
+        img = Image.open(BytesIO(response.content))
+        return img
+    
+    def process_image(self, image):
+        # Load image using OpenCV
+        image_np = np.array(image)
+    
+        # Convert image to RGB (YOLOv5 expects RGB)
+        image_rgb = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+    
+        # Run the model
+        results = model(image_rgb)
+        
+        return results
+    
+    async def remove_content(self, message):
+        try:
+            await message.delete()
+            return True
+        except discord.DiscordException as e:
+            logging.error(f"Failed to delete message: {e}")
+            return False
+    
+    async def eval_text(self, message):
         if len(message.attachments) > 0:
-            # here will be stuff
-            pass
+            image_url = message.attachments[0].url
+            image = self.download_image(image_url)
+            results = self.process_image(image)
+        
+            cat_detected = False
+            for result in results.xyxy[0]:  # xyxy format contains bounding box and class information
+                class_name = results.names[int(result[5])]
+                if class_name == 'cat':  # 'cat' is our proxy for CSAM
+                    cat_detected = True
+                    break
+
+            if cat_detected:
+                # Send a message to mod channel that says "potential CSAM detected"
+                mod_channel = self.mod_channels.get(message.guild.id)
+                if mod_channel:
+                    user_id = message.author.id
+                    timestamp = message.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                    channel_name = message.channel.name
+                    await mod_channel.send(f"Potential CSAM detected\nUser ID: {user_id}\nTime: {timestamp}\nChannel: {channel_name}")
+
+                    # Send the attachment itself and use information
+                    await mod_channel.send(file=discord.File(BytesIO(requests.get(image_url).content), filename=message.attachments[0].filename))
+
+                    # Add it to the priority queue
+                    report = Report(self, self.add_to_queue)
+                    report.AUTHOR = message.author.name
+                    report.OFFENSIVE_CONTENT = [message.content]
+                    report.REASON = "Explicit Content"
+                    report.IMMINENT_DANGER = True
+                
+                    self.add_to_queue(report)
+
+                    removed = await self.remove_content(message)
+                    if removed:
+                        await mod_channel.send(f"Message from User ID: {user_id} in Channel: {channel_name} has been removed.")
+                
+                    # Notify user
+                    await message.channel.send("The content has been classified as CSAM and has been reported to the moderators.")
+                    await message.channel.send("The content has been removed.")
+            else:
+                print("No potential CSAM detected")
+        else:
+            print("No attachment image")
+    
+    
+
 
 
 client = ModBot()
